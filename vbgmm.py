@@ -23,40 +23,46 @@ class VariationalGMM():
 
         for n in range(0, self.max_iter):
             self.log_resp, self.resp = self.e_step(X)
-            self.m_step(X, self.resp)
+            N_k, x_bar_k, S_k = self.m_step(X, self.resp)
+            # check if convergence
+            # ensure lowerbound increases
+            print(self._calculate_lower_bound(N_k, x_bar_k, S_k))
 
     def _initialize_parameters(self, X):
         self.n_samples_ = np.shape(X)[0]  # number of samples
         self.n_features_ = np.shape(X)[1]  # number of features
         self.resp_ = np.zeros([self.n_samples_, self.n_components])
         self.alpha_k = np.full([self.n_components, ], self.alpha_prior)  # dirichlet parameters
-        self.means = KMeans(self.n_components).fit(X).cluster_centers_ # We default to initializing the means of our mixands with centers of KMeans model.
+        self.means = KMeans(self.n_components).fit(X).cluster_centers_.T # We default to initializing the means of our mixands with centers of KMeans model.
         self.means_prior = np.mean(X, axis=0)
         self.weights = self.weights_prior if self.weights_prior is not None else np.diag(np.random.uniform(0, 1, self.n_components))
         self.beta_k = np.full(self.n_components, self.beta_prior)  # scale of precision matrix.
         self.log_pi = digamma(self.alpha_k) - digamma(np.sum(self.alpha_k))
         self.log_lambda = np.zeros(self.n_components)
-        self.nu_k = np.full([self.n_components, ], self.n_samples_ + 50)
-        print(self.means_prior)
+        self.dof = self.dof if self.dof is not None else self.n_features_ + 50
+        self.nu_k = np.full([self.n_components, ], self.dof)
         self.W_k = np.zeros(
             [self.n_features_, self.n_features_, self.n_components])  # scaling matrix of wishart distribution
         self.W_prior = self.wishart_matrix_prior if self.wishart_matrix_prior is not None else np.diag(np.full(
             [self.n_features_, ], 100))
-
-
         self.W_prior_inv = np.linalg.inv(self.W_prior)  # Inverse of initial wishart component
+
+        for k in range(0, self.n_components):
+            self.W_k[:, :, k] = self.W_prior  # Scale matrix for Wishart
+            self._update_expected_log_lambda()
+
 
     def e_step(self, X):
         # In the variational e_step, the ultimate goal is to calculate the responsibilities resp
         log_rho_nk = np.zeros([self.n_samples_, self.n_components])  # log rho, see Bishop 10.46
         for k in range(0, self.n_components):
             # Calculate the proportional responsiblities via 10.67 in Bishop.
-            diff = X - self.means[k]
+            diff = X - self.means[:, k]
             log_rho_nk[:, k] = self.log_pi[k] + .5 * self.log_lambda[k] - .5 * (
                     self.n_features_ / self.beta_k[k]) - .5 * self.nu_k[k] * np.diag(
                 np.dot(np.dot(diff, self.W_k[:, :, k]), np.transpose(diff)))
-
-        Z = logsumexp(log_rho_nk, axis=0)
+        Z = logsumexp(log_rho_nk, axis=1)
+        print(log_rho_nk)
         log_resp = log_rho_nk - Z
         resp = np.exp(log_resp)
         return log_resp, resp
@@ -67,8 +73,9 @@ class VariationalGMM():
         self._update_weights(N_k)
         self._update_expected_log_pi(N_k)
         self._update_means(N_k, x_bar_k)
-        self._update_expected_log_lambda(N_k, x_bar_k, S_k)
+        self._update_expected_log_lambda()
         self._update_gaussian_wishart(N_k, S_k, x_bar_k)
+        return N_k, x_bar_k, S_k
 
     def _estimate_gaussian_mixture_parameters(self, X, resp):
         x_bar_k = np.zeros([self.n_features_, self.n_components])  # estimated centers of the component
@@ -88,7 +95,7 @@ class VariationalGMM():
     def _update_means(self, N_k, x_bar_k):
         for k in range(0, self.n_components):
             self.means[:, k] = (1 / self.beta_k[k]) * (
-                    self.beta_prior * self.means_prior[:, k] + N_k[k] * x_bar_k[:, k])  # from Bishop 10.61
+                    self.beta_prior * self.means_prior + N_k[k] * x_bar_k[:, k])  # from Bishop 10.61
 
     def _update_gaussian_wishart_parameters(self, N_k):
         self.beta_k = self.beta_prior + N_k  # from Bishop 10.60
@@ -113,7 +120,7 @@ class VariationalGMM():
     def _update_expected_log_lambda(self, ):
         for k in range(0, self.n_components):
             digamma_sum = 0
-            for i in range(0, self.n_features_):
+            for i in range(1, self.n_features_ + 1):
                 digamma_sum += digamma((self.nu_k[k] + 1 - i) / 2)
             self.log_lambda[k] = digamma_sum + self.n_features_ * np.log(2) + np.log(np.linalg.det(self.W_k[:, :, k]))
 
@@ -129,16 +136,16 @@ class VariationalGMM():
 
     def _calculate_lower_bound(self, N_k, x_bar_k, S_k):
         log_px = 0
-        log_pml, log_pml2 = 0
+        log_pml = 0
+        log_pml2 = 0
         log_qml = 0
         for k in range(0, self.n_components):
             # Here we collect all terms that require summations index by the k-th component.
 
             # see Bishop 10.71
             log_px = log_px + N_k[k] * (self.log_lambda[k] - self.n_features_ / self.beta_k[k] - self.nu_k[k] *
-                                        np.trace(np.dot(S_k[:, :, k], self.W_k[:, :, k])) - self.nu_k[k] * np.transpose(
-                        x_bar_k[:, k] -
-                        np.dot(np.dot(self.means[:, k]), self.W_k[:, :, k]),
+                                        np.trace(np.dot(S_k[:, :, k], self.W_k[:, :, k])) - self.nu_k[k] * np.dot(np.dot(np.transpose(
+                        x_bar_k[:, k] - self.means[:, k]), self.W_k[:, :, k]),
                         x_bar_k[:, k] - self.means[:, k]) - self.n_features_ * np.log(2 * np.pi))
 
             # see Bishop 10.74
