@@ -5,7 +5,7 @@ from sklearn.cluster import KMeans
 
 class VariationalGMM():
 
-    def __init__(self, n_components=3, max_iter=100, tolerance=1e-3, alpha_prior=1, beta_prior=1, dof=None,
+    def __init__(self, n_components=3, max_iter=100, tolerance=1e-3, alpha_prior=1e-5, beta_prior=1, dof=None,
                  wishart_matrix_prior=None, weights_prior=None, means_prior=None, covariances_prior=None):
         self.n_components = n_components  # Number of mixture components (K)
         self.max_iter = max_iter  # number of iterations to run iterative update of varational inference
@@ -63,7 +63,7 @@ class VariationalGMM():
                 np.dot(np.dot(diff, self.W_k[:, :, k]), np.transpose(diff)))
         Z = logsumexp(log_rho_nk, axis=1)
         print(log_rho_nk)
-        log_resp = log_rho_nk - Z
+        log_resp = log_rho_nk - Z[:, np.newaxis]
         resp = np.exp(log_resp)
         return log_resp, resp
 
@@ -73,8 +73,8 @@ class VariationalGMM():
         self._update_weights(N_k)
         self._update_expected_log_pi(N_k)
         self._update_means(N_k, x_bar_k)
-        self._update_expected_log_lambda()
         self._update_gaussian_wishart(N_k, S_k, x_bar_k)
+        self._update_expected_log_lambda()
         return N_k, x_bar_k, S_k
 
     def _estimate_gaussian_mixture_parameters(self, X, resp):
@@ -90,7 +90,7 @@ class VariationalGMM():
         return N_k, x_bar_k, S_k
 
     def _update_weights(self, N_k):
-        self.weights_ = (self.alpha_prior + N_k) / (self.n_components * self.alpha_prior + N_k)
+        self.weights = (self.alpha_prior + N_k) / (self.n_components * self.alpha_prior + self.n_samples_)
 
     def _update_means(self, N_k, x_bar_k):
         for k in range(0, self.n_components):
