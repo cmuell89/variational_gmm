@@ -1,4 +1,5 @@
 import numpy as np
+from sklearn.mixture import BayesianGaussianMixture
 from vbgmm import VariationalGMM
 
 def read_file(filename):
@@ -25,5 +26,5 @@ if __name__ == "__main__":
 
     path = "./old_faithful.txt"
     data = read_file(path)
-    print(data)
+
     gmm = VariationalGMM(K=25, alpha_prior= 1*10^(-5), max_iter=1001)
