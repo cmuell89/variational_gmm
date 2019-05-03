@@ -34,7 +34,7 @@ def read_file(filename):
 
 
 def plot_results(X, Y_, means, covariances, index, title):
-    splot = plt.subplot(2, 1, 1 + index)
+    splot = plt.subplot(3, 1, 1 + index)
     for i, (mean, covar, color) in enumerate(zip(
             means, covariances, color_iter)):
         v, w = linalg.eigh(covar)
@@ -72,17 +72,30 @@ if __name__ == "__main__":
 
     # Fit a Gaussian mixture with EM using five components
     gmm = mixture.GaussianMixture(n_components=n_components, covariance_type='full').fit(X)
+    print("Regular GMM")
+    print(gmm.means_)
+    print(gmm.covariances_)
+    print(gmm.predict(X))
     plot_results(X, gmm.predict(X), gmm.means_, gmm.covariances_, 0,
                  '{}-component Gaussian Mixture Mode'.format(n_components))
 
-    vbgmm = VariationalGMM().fit(X)
+    vbgmm = VariationalGMM(n_components=5).fit(X)
+    print("\n\nMy variational GMM")
+    print(vbgmm.means_.T)
+    print(vbgmm.covariances_.T)
+    # print(vbgmm.mixture_density(X))
+    print(vbgmm.predict(X))
+    plot_results(X, vbgmm.predict(X), vbgmm.means_, vbgmm.covariances_.T, 1,
+                 'Bayesian Gaussian Mixture Model')
 
     # Fit a Dirichlet process Gaussian mixture using five components
     dpgmm = mixture.BayesianGaussianMixture(n_components=n_components,
-                                            covariance_type='full', max_iter=200, weight_concentration_prior_type='dirichlet_distribution').fit(X)
-
-
-    plot_results(X, dpgmm.predict(X), dpgmm.means_, dpgmm.covariances_, 1,
+                                            covariance_type='full', max_iter=200,
+                                            weight_concentration_prior_type='dirichlet_distribution').fit(X)
+    print("\n\nDPGMM")
+    print(dpgmm.means_)
+    print(dpgmm.covariances_)
+    print(dpgmm.predict(X))
+    plot_results(X, dpgmm.predict(X), dpgmm.means_, dpgmm.covariances_, 2,
                  'Bayesian Gaussian Mixture Model')
-
     plt.show()
