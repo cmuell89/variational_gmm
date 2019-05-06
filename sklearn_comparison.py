@@ -68,7 +68,7 @@ if __name__ == "__main__":
     np.random.seed(0)
     C = np.array([[0., -0.1], [1.7, .4]])
 
-    n_components = 5
+    n_components = 2
 
     # Fit a Gaussian mixture with EM using five components
     gmm = mixture.GaussianMixture(n_components=n_components, covariance_type='full').fit(X)
@@ -79,13 +79,13 @@ if __name__ == "__main__":
     plot_results(X, gmm.predict(X), gmm.means_, gmm.covariances_, 0,
                  '{}-component Gaussian Mixture Mode'.format(n_components))
 
-    vbgmm = VariationalGMM(n_components=5).fit(X)
+    vbgmm = VariationalGMM(n_components=n_components).fit(X)
     print("\n\nMy variational GMM")
     print(vbgmm.means_.T)
     print(vbgmm.covariances_.T)
     # print(vbgmm.mixture_density(X))
     print(vbgmm.predict(X))
-    plot_results(X, vbgmm.predict(X), vbgmm.means_, vbgmm.covariances_.T, 1,
+    plot_results(X, vbgmm.predict(X), vbgmm.means_.T, vbgmm.covariances_.T, 1,
                  'Bayesian Gaussian Mixture Model')
 
     # Fit a Dirichlet process Gaussian mixture using five components
