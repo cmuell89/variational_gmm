@@ -278,5 +278,6 @@ class VariationalGMM():
         log_qp = np.sum((self.alpha_k - 1) * self.log_pi) + gammaln(np.sum(self.alpha_k)) - np.sum(
             gammaln(self.alpha_k))  # 10.76
 
+        print(log_px + log_pz + log_pp + log_pml - log_qz - log_qp - log_qml)
         # Sum all parts to compute lower bound
         return log_px + log_pz + log_pp + log_pml - log_qz - log_qp - log_qml

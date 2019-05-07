@@ -7,7 +7,7 @@ import matplotlib as mpl
 
 from sklearn import mixture
 
-from vbgmm import VariationalGMM
+from vbgmm_precision import VariationalGMM
 
 color_iter = itertools.cycle(['navy', 'c', 'cornflowerblue', 'gold',
                               'darkorange'])
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     np.random.seed(0)
     C = np.array([[0., -0.1], [1.7, .4]])
 
-    n_components = 2
+    n_components = 4
 
     # Fit a Gaussian mixture with EM using five components
     gmm = mixture.GaussianMixture(n_components=n_components, covariance_type='full').fit(X)
@@ -81,11 +81,11 @@ if __name__ == "__main__":
 
     vbgmm = VariationalGMM(n_components=n_components).fit(X)
     print("\n\nMy variational GMM")
-    print(vbgmm.means_.T)
-    print(vbgmm.covariances_.T)
+    print(vbgmm.means_)
+    print(vbgmm.covariances_)
     # print(vbgmm.mixture_density(X))
     print(vbgmm.predict(X))
-    plot_results(X, vbgmm.predict(X), vbgmm.means_.T, vbgmm.covariances_.T, 1,
+    plot_results(X, vbgmm.predict(X), vbgmm.means_, vbgmm.covariances_, 1,
                  'Bayesian Gaussian Mixture Model')
 
     # Fit a Dirichlet process Gaussian mixture using five components
