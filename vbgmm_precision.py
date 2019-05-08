@@ -22,11 +22,85 @@ def compute_precisions_cholesky(covariances):
                                                      lower=True).T
     return precisions_chol
 
+def _compute_log_det_cholesky(matrix_chol, n_features):
+    """Compute the log-det of the cholesky decomposition of matrices.
+
+    Parameters
+    ----------
+    matrix_chol : array-like
+        Cholesky decompositions of the matrices.
+        'full' : shape of (n_components, n_features, n_features)
+        'tied' : shape of (n_features, n_features)
+        'diag' : shape of (n_components, n_features)
+        'spherical' : shape of (n_components,)
+
+    covariance_type : {'full', 'tied', 'diag', 'spherical'}
+
+    n_features : int
+        Number of features.
+
+    Returns
+    -------
+    log_det_precision_chol : array-like, shape (n_components,)
+        The determinant of the precision matrix for each component.
+    """
+
+    n_components, _, _ = matrix_chol.shape
+    log_det_chol = (np.sum(np.log(
+        matrix_chol.reshape(
+            n_components, -1)[:, ::n_features + 1]), 1))
+
+    return log_det_chol
+
+def _log_dirichlet_norm(dirichlet_concentration):
+    """Compute the log of the Dirichlet distribution normalization term.
+
+    Parameters
+    ----------
+    dirichlet_concentration : array-like, shape (n_samples,)
+        The parameters values of the Dirichlet distribution.
+
+    Returns
+    -------
+    log_dirichlet_norm : float
+        The log normalization of the Dirichlet distribution.
+    """
+    return (gammaln(np.sum(dirichlet_concentration)) -
+            np.sum(gammaln(dirichlet_concentration)))
+
+
+def _log_wishart_norm(degrees_of_freedom, log_det_precisions_chol, n_features):
+    """Compute the log of the Wishart distribution normalization term.
+
+    Parameters
+    ----------
+    degrees_of_freedom : array-like, shape (n_components,)
+        The number of degrees of freedom on the covariance Wishart
+        distributions.
+
+    log_det_precision_chol : array-like, shape (n_components,)
+         The determinant of the precision matrix for each component.
+
+    n_features : int
+        The number of features.
+
+    Return
+    ------
+    log_wishart_norm : array-like, shape (n_components,)
+        The log normalization of the Wishart distribution.
+    """
+    # To simplify the computation we have removed the np.log(np.pi) term
+    return -(degrees_of_freedom * log_det_precisions_chol +
+             degrees_of_freedom * n_features * .5 * np.log(2.) +
+             np.sum(gammaln(.5 * (degrees_of_freedom -
+                                  np.arange(n_features)[:, np.newaxis])), 0))
+
 
 class VariationalGMM():
 
-    def __init__(self, n_components=3, max_iter=200, tolerance=1e-3, alpha_prior=None, beta_prior=1, dof=None,
-                 wishart_matrix_prior=None, weights_prior=None, means_prior=None, covariances_prior=None, regularization=1e-3):
+    def __init__(self, n_components=3, max_iter=200, tolerance=1e-6, alpha_prior=None, beta_prior=1, dof=None,
+                 wishart_matrix_prior=None, weights_prior=None, means_prior=None, covariances_prior=None,
+                 regularization=1e-6):
         self.n_components = n_components  # Number of mixture components (K)
         self.max_iter = max_iter  # number of iterations to run iterative update of varational inference
         self.tolerance = tolerance  # Log-likelihood tolerance for terminating EM
@@ -56,13 +130,16 @@ class VariationalGMM():
         self.W_k = np.zeros(
             [self.n_components, self.n_features_, self.n_features_])  # scaling matrix of wishart distribution
         self.W_lb = np.zeros(
-            [self.n_components, self.n_features_, self.n_features_])  # Collects inverse Wishart scaling matricies for use in lowerbound
-        self.W_prior = self.wishart_matrix_prior if self.wishart_matrix_prior is not None else np.atleast_2d(np.cov(X.T))
+            [self.n_components, self.n_features_,
+             self.n_features_])  # Collects inverse Wishart scaling matricies for use in lowerbound
+        self.W_prior = self.wishart_matrix_prior if self.wishart_matrix_prior is not None else np.atleast_2d(
+            np.cov(X.T))
         self.W_prior_inv = np.linalg.inv(self.W_prior)  # Inverse of initial wishart component
         self._kmeans_initialize(X)
 
     def _kmeans_initialize(self, X):
-        kmeans = KMeans(self.n_components).fit(
+        kmeans = KMeans(n_clusters=self.n_components, n_init=1,
+                                   random_state=None).fit(
             X)
         resp = np.zeros((self.n_samples_, self.n_components))
         resp[np.arange(self.n_samples_), kmeans.labels_] = 1
@@ -105,17 +182,24 @@ class VariationalGMM():
     def fit(self, X):
         self._initialize_parameters(X)
 
-        lower_bounds = [-np.inf]
+        self.lower_bounds_ = []
+        prior_lb = -np.inf
         for n in range(0, self.max_iter):
             # E-M Step
             self.log_resp, self.resp = self.e_step(X)
             N_k, x_bar_k, S_k = self.m_step(X, self.resp)
-            lower_bounds.append(self.elbo())
-            if lower_bounds[-1] - lower_bounds[-2] <= self.tolerance:
+            new_lb = self._compute_lower_bound()
+            # new_lb = self._calculate_lower_bound(N_k, x_bar_k, S_k)
+            # new_lb = self.elbo()
+
+            self.lower_bounds_.append(new_lb)
+            if abs(new_lb - prior_lb) <= self.tolerance:
                 print("Converged.")
                 break
-        if lower_bounds[-1] - lower_bounds[-2] > self.tolerance:
+            prior_lb = new_lb
+        if abs(new_lb - prior_lb) > self.tolerance:
             print("Algorithm maximum iterations inadequate to achieve convergence according to given tolerance.")
+        self.log_resp, self.resp = self.e_step(X)
         self.fitted = True
         return self
 
@@ -174,9 +258,9 @@ class VariationalGMM():
         self.alpha_k = self.alpha_prior + N_k  # from Bishop 10.58
 
     def _estimate_weights(self, N_k):
-        # self.weights = (self.alpha_prior + N_k) / (
-        #         self.n_components * self.alpha_prior + self.n_samples_)  # Bishop 10.69
-        self.weights = (self.alpha_prior + N_k)  # scikit learn doesn't divide by anything...why?
+        self.weights = (self.alpha_prior + N_k) / (
+                self.n_components * self.alpha_prior + self.n_samples_)  # Bishop 10.69
+        # self.weights = (self.alpha_prior + N_k)  # scikit learn doesn't divide by anything...why?
 
     def _update_wishart_prior_parameters(self, N_k):
         self.nu_k = self.dof + N_k  # from Bishop 10.63 and according to sci-kit learn, it shouldn't have the +1
@@ -193,9 +277,9 @@ class VariationalGMM():
     def _estimate_wishart_matrix(self, N_k, x_bar_k, S_k):
         for k in range(0, self.n_components):
             mean_diff = x_bar_k[k] - self.means_prior
-            self.W_k[k] = (self.W_prior + N_k[k] * S_k[k] +  N_k[k] * self.beta_prior \
-                          / self.beta_k[k] * np.outer(mean_diff,
-                                                      mean_diff))  # from Bishop 10.62
+            self.W_k[k] = (self.W_prior + N_k[k] * S_k[k] + N_k[k] * self.beta_prior \
+                           / self.beta_k[k] * np.outer(mean_diff,
+                                                       mean_diff))  # from Bishop 10.62
             self.W_lb[k] = np.linalg.inv(self.W_k[k])
         self.W_k /= self.nu_k[:, np.newaxis, np.newaxis]
         self.covariances_ = self.W_k
@@ -205,16 +289,12 @@ class VariationalGMM():
         self.log_pi = digamma(self.alpha_k) - digamma(np.sum(self.alpha_k))  # from Bishop 10.66
 
     def _update_expected_log_lambda(self):
-        # for k in range(0, self.n_components):
-        #     digamma_sum = 0
-        #     for i in range(1, self.n_features_ + 1):
-        #         digamma_sum += digamma((self.nu_k[k] + 1 - i) / 2)
-        #     self.log_lambda_bar[k] = digamma_sum + self.n_features_ * np.log(2)  # frrom Bishop 10.65
-        # self.log_lambda_bar[k] = digamma_sum + self.n_features_ * np.log(2) + np.log(
-        #     np.linalg.det(self.W_k[:, :, k]))  # frrom Bishop 10.65
-        self.log_lambda = self.n_features_ * np.log(2.) + np.sum(digamma(
-            .5 * (self.nu_k -
-                  np.arange(0, self.n_features_)[:, np.newaxis])), 0)
+        for k in range(0, self.n_components):
+            digamma_sum = 0
+            for i in range(1, self.n_features_ + 1):
+                digamma_sum += digamma((self.nu_k[k] + 1 - i) / 2)
+            self.log_lambda[k] = digamma_sum + self.n_features_ * np.log(2) + np.log(np.linalg.det(self.precisions_cholesky_[k])) # from Bishop 10.65
+
 
     def logB(self, W, nu):
         n_col = np.shape(W)[1]
@@ -227,20 +307,19 @@ class VariationalGMM():
                                                         np.log(np.pi) + gamma_sum))
 
     def _calculate_lower_bound(self, N_k, x_bar_k, S_k):
+        # DECREASES
         log_px = 0
         log_pml = 0
         log_pml2 = 0
         log_qml = 0
-        print(print(self.resp[0:5]))
         for k in range(0, self.n_components):
             # Here we collect all terms that require summations index by the k-th component.
-
-            # see Bishop 10.71
+            diff = x_bar_k[k] - self.means[k]
+            # see Bishop 10.71; we remove (- self.n_features_ * np.log(2 * np.pi)) since it is an additive constant.
             log_px = log_px + N_k[k] * (
                     self.log_lambda[k] - self.n_features_ / self.beta_k[k] - self.nu_k[k] * np.trace(
                 np.dot(S_k[k], self.W_lb[k])) - self.nu_k[k] * np.dot(
-                np.dot((x_bar_k[k] - self.means[k]), self.W_lb[k]),
-                (x_bar_k[k] - self.means[k])) - self.n_features_ * np.log(2 * np.pi))
+                np.dot(diff, self.W_lb[k]), diff)) - self.n_features_ * np.log(2 * np.pi)
 
             # see Bishop 10.74
             log_pml = log_pml + self.n_features_ * np.log(self.beta_prior / (2 * np.pi)) + self.log_lambda[k] - \
@@ -274,11 +353,12 @@ class VariationalGMM():
         print(log_px + log_pz + log_pp + log_pml - log_qz - log_qp - log_qml)
         return log_px + log_pz + log_pp + log_pml - log_qz - log_qp - log_qml
 
+
     def elbo(self):
-        # Elbow bounds the log normalizer of the KL divergence equations for optimizing the variational
-        # GMM. It is a simpler bound than
+        # ELBO: evidence lower bounds in order to test for convergence.
+        # DECREASES
         lb = gammaln(np.sum(self.alpha_prior)) - np.sum(gammaln(self.alpha_prior)) \
-               - gammaln(np.sum(self.log_lambda)) + np.sum(gammaln(self.log_pi))
+             - gammaln(np.sum(self.log_lambda)) + np.sum(gammaln(self.log_pi))
         lb -= self.n_samples_ * self.n_features_ / 2. * np.log(2. * np.pi)
         for k in range(0, self.n_components):
             lb += (-(self.dof * self.n_features_ * np.log(2.)) / 2.) \
@@ -290,5 +370,47 @@ class VariationalGMM():
             lb += (self.dof / 2.) * np.log(np.linalg.det(self.W_prior)) \
                   - (self.nu_k[k] / 2.) * np.log(np.linalg.det(self.W_lb[k]))
             lb -= np.dot(np.log(self.alpha_k[k]).T, self.alpha_k[k])
-        print(lb)
         return lb
+
+    def _compute_lower_bound(self):
+        """Estimate the lower bound of the model.
+
+        The lower bound on the likelihood (of the training data with respect to
+        the model) is used to detect the convergence and has to decrease at
+        each iteration.
+
+        Parameters
+        ----------
+        X : array-like, shape (n_samples, n_features)
+
+        log_resp : array, shape (n_samples, n_components)
+            Logarithm of the posterior probabilities (or responsibilities) of
+            the point of each sample in X.
+
+        log_prob_norm : float
+            Logarithm of the probability of each sample in X.
+
+        Returns
+        -------
+        lower_bound : float
+        """
+        # Contrary to the original formula, we have done some simplification
+        # and removed all the constant terms.
+        n_features, = self.means_prior.shape
+
+        # We removed `.5 * n_features * np.log(self.degrees_of_freedom_)`
+        # because the precision matrix is normalized.
+        log_det_precisions_chol = (_compute_log_det_cholesky(
+            self.precisions_cholesky_, n_features) -
+            .5 * n_features * np.log(self.nu_k))
+
+
+        log_wishart = np.sum(_log_wishart_norm(
+            self.nu_k, log_det_precisions_chol, n_features))
+
+        log_norm_weight = _log_dirichlet_norm(self.alpha_k)
+
+        return (-np.sum(np.exp(self.log_resp) * self.log_resp) -
+                log_wishart - log_norm_weight -
+                0.5 * n_features * np.sum(np.log(self.beta_k)))
+

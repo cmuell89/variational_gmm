@@ -63,7 +63,6 @@ def plot_results(X, Y_, means, covariances, index, title):
 if __name__ == "__main__":
     path = "./old_faithful.txt"
     X = read_file(path)
-
     # Generate random sample, two components
     np.random.seed(0)
     C = np.array([[0., -0.1], [1.7, .4]])
@@ -86,10 +85,10 @@ if __name__ == "__main__":
     # print(vbgmm.mixture_density(X))
     print(vbgmm.predict(X))
     plot_results(X, vbgmm.predict(X), vbgmm.means_, vbgmm.covariances_, 1,
-                 'Bayesian Gaussian Mixture Model')
+                 'Project Bayesian Gaussian Mixture Model')
 
     # Fit a Dirichlet process Gaussian mixture using five components
-    dpgmm = mixture.BayesianGaussianMixture(n_components=n_components,
+    dpgmm = mixture.BayesianGaussianMixture(n_components=n_components, init_params='kmeans',
                                             covariance_type='full', max_iter=200,
                                             weight_concentration_prior_type='dirichlet_distribution').fit(X)
     print("\n\nDPGMM")
@@ -97,5 +96,26 @@ if __name__ == "__main__":
     print(dpgmm.covariances_)
     print(dpgmm.predict(X))
     plot_results(X, dpgmm.predict(X), dpgmm.means_, dpgmm.covariances_, 2,
-                 'Bayesian Gaussian Mixture Model')
+                 'Scikit Learn Bayesian Gaussian Mixture Model')
     plt.show()
+
+    x = [idx for idx in range(len(vbgmm.lower_bounds_))]
+    y = vbgmm.lower_bounds_
+    plt.plot(x, y, '.-')
+    plt.xlabel('Iteration')
+    plt.ylabel('ELBO bounds')
+    plt.show()
+
+    x = [idx for idx in range(len(dpgmm.lower_bounds_))]
+    y = dpgmm.lower_bounds_
+    plt.plot(x, y, '.-')
+    plt.xlabel('Scikit Learn Iteration')
+    plt.ylabel('ELBO bounds')
+    plt.show()
+
+    print(vbgmm.lower_bounds_[-1])
+    print(dpgmm.lower_bounds_[-1])
+
+
+    print(X)
+    print(X.shape)
