@@ -17,11 +17,11 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import axes3d, Axes3D #<-- Note the capitalization!
 
 
-color_iter = itertools.cycle(['navy', 'c', 'cornflowerblue', 'gold',
-                              'darkorange'])
+color_iter = itertools.cycle(['navy', 'black', 'cornflowerblue', 'r',
+                              'darkorange', 'g', 'brown'])
 
 
-def load_json_files(path, count=5):
+def load_json_files(path, count=None):
     """
     Import JSON files as a Python dictionary from .json files in the directory signified by the path..
 
@@ -38,7 +38,8 @@ def load_json_files(path, count=5):
 
     entries = []
     files = glob.glob(path)
-    files = files[0:count]
+    if count is not None and count > 0:
+        files = files[0:count]
     for name in files:
         try:
             with codecs.open(name, "r", 'utf-8') as f:
@@ -61,7 +62,7 @@ def vectorize_demonstrations(demonstrations):
     return vectorized_demonstrations
 
 
-def plot_results(X, Y_, means, covariances, title):
+def plot_results(X, Y_, means, covariances):
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     for i, (mean, covar, color) in enumerate(zip(
@@ -94,17 +95,32 @@ def plot_results(X, Y_, means, covariances, title):
 
 
 if __name__ == "__main__":
-    dir_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'pouring_demos')
-    demos = vectorize_demonstrations(load_json_files(os.path.join(dir_path, '*.json')))
+    dir_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'place_atop_demos')
+    demos = vectorize_demonstrations(load_json_files(os.path.join(dir_path, '*.json'), count=5))
+    print(len(demos))
     X = np.array([e for sl in demos for e in sl])
 
 
     vbgmm = VariationalGMM(n_components=10).fit(X)
+
     print("\n\nMy variational GMM")
     print(vbgmm.means_)
     print(vbgmm.covariances_)
     # print(vbgmm.mixture_density(X))
     print(vbgmm.predict(X))
-    plot_results(X, vbgmm.predict(X), vbgmm.means_, vbgmm.covariances_,
-                 'Scikit Learn Bayesian Gaussian Mixture Model')
+    plot_results(X, vbgmm.predict(X), vbgmm.means_, vbgmm.covariances_)
+    plt.title('Bayesian Gaussian Mixture Model on Shelf Placement Demonstration')
+    plt.show()
+
+    dir_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'pouring_demos')
+    demos = vectorize_demonstrations(load_json_files(os.path.join(dir_path, '*.json')))
+    X = np.array([e for sl in demos for e in sl])
+
+    vbgmm = VariationalGMM(n_components=10).fit(X)
+    print(vbgmm.means_)
+    print(vbgmm.covariances_)
+    # print(vbgmm.mixture_density(X))
+    print(vbgmm.predict(X))
+    plot_results(X, vbgmm.predict(X), vbgmm.means_, vbgmm.covariances_)
+    plt.title('Bayesian Gaussian Mixture Model on a Pouring Demonstration')
     plt.show()

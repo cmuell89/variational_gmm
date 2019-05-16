@@ -1,7 +1,4 @@
 import numpy as np
-from scipy.special import gamma
-from numpy.linalg import slogdet
-import copy
 from scipy import linalg
 from scipy.special import digamma, logsumexp, gammaln, multigammaln
 from sklearn.cluster import KMeans
@@ -246,7 +243,7 @@ class VariationalGMM():
         S_k = np.zeros(
             [self.n_components, self.n_features_, self.n_features_])  # estimated covariances of the components
         N_k = np.sum(resp,
-                     axis=0) + 1e-10  # from Bishop 10.51, sum or responsibilities for each component i.e. number of data samples in each component
+                     axis=0) + 10 * np.finfo(resp.dtype).eps  # from Bishop 10.51, sum or responsibilities for each component i.e. number of data samples in each component
         x_bar_k = np.dot(resp.T, X) / N_k[:, np.newaxis]  # Bishop 10.52
         for k in range(0, self.n_components):
             x_cen = X - x_bar_k[k]

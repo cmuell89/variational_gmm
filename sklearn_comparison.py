@@ -55,8 +55,10 @@ def plot_results(X, Y_, means, covariances, index, title):
         ell.set_alpha(0.5)
         splot.add_artist(ell)
 
-    plt.xticks(())
-    plt.yticks(())
+    # plt.xticks(())
+    # plt.yticks(())
+    plt.ylabel("Waiting Time (days)")
+    plt.xlabel("Erruption Time (minutes)")
     plt.title(title)
 
 
@@ -67,7 +69,7 @@ if __name__ == "__main__":
     np.random.seed(0)
     C = np.array([[0., -0.1], [1.7, .4]])
 
-    n_components = 4
+    n_components = 5
 
     # Fit a Gaussian mixture with EM using five components
     gmm = mixture.GaussianMixture(n_components=n_components, covariance_type='full').fit(X)
@@ -97,25 +99,22 @@ if __name__ == "__main__":
     print(dpgmm.predict(X))
     plot_results(X, dpgmm.predict(X), dpgmm.means_, dpgmm.covariances_, 2,
                  'Scikit Learn Bayesian Gaussian Mixture Model')
+    plt.suptitle('GMM Modeling of Old Faithful Dataset')
+    plt.tight_layout()
     plt.show()
 
     x = [idx for idx in range(len(vbgmm.lower_bounds_))]
     y = vbgmm.lower_bounds_
     plt.plot(x, y, '.-')
     plt.xlabel('Iteration')
-    plt.ylabel('ELBO bounds')
+    plt.ylabel('ELBO')
+    plt.title("Evidence Lower Bounds (ELBO) vs. Algorithm Iteration")
     plt.show()
 
-    x = [idx for idx in range(len(dpgmm.lower_bounds_))]
-    y = dpgmm.lower_bounds_
-    plt.plot(x, y, '.-')
-    plt.xlabel('Scikit Learn Iteration')
-    plt.ylabel('ELBO bounds')
-    plt.show()
+    # x = [idx for idx in range(len(dpgmm.lower_bounds_))]
+    # y = dpgmm.lower_bounds_
+    # plt.plot(x, y, '.-')
+    # plt.xlabel('Scikit Learn Iteration')
+    # plt.ylabel('ELBO bounds')
+    # plt.show()
 
-    print(vbgmm.lower_bounds_[-1])
-    print(dpgmm.lower_bounds_[-1])
-
-
-    print(X)
-    print(X.shape)
